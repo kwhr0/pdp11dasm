@@ -25,6 +25,9 @@
  *
  */
 
+#include <map>
+#include <string>
+
 #include	<stdio.h>
 #include	<stdlib.h>
 #include	<ctype.h>
@@ -97,6 +100,13 @@ int	pc;							// current program counter
 int	breakLine;					// if true, add a blank comment line to output
 word	*program;					// the program data
 byte	*flags;						// disassembly flags from the control file
+
+std::map<int, std::string> symbols;
+
+void printsym(char *s, int dest) {
+	if (symbols.count(dest)) sprintf(s, "%s", symbols[dest].c_str());
+	else sprintf(s, "%d", dest);
+}
 
 //////////////////////////////////
 //
@@ -252,7 +262,21 @@ int main(int argc, char *argv[])
 
 		fclose(ctlfp);
 	}
-
+//
+	char s[256];
+	strcpy(s, pdpFileName);
+	char *p = strrchr(s, '/');
+	strcpy(p ? p + 1 : s, "mapfile");
+	if ((fp = fopen(s, "r"))) {
+		while (fgets(s, sizeof(s), fp)) {
+			int adr, type;
+			char name[256];
+			if (sscanf(s, "%o%o%s", &adr, &type, name) == 3)
+				symbols[adr] = name;
+		}
+		fclose(fp);
+	}
+//
 	fp = fopen(pdpFileName, "rb");		// open file to be disassembled
 
 	if (!fp)
@@ -263,6 +287,8 @@ int main(int argc, char *argv[])
 
 		return -1;
 	}
+
+	fseek(fp, 16, SEEK_SET); // skip header
 
 	fread(program, sizeof(byte), max, fp);
 	fclose(fp);
@@ -373,7 +399,7 @@ int doString(int adrs)
 					strcat(outLine, ",");
 
 				prt = FALSE;
-				sprintf(tmp, "%o", chr);
+				sprintf(tmp, "%d", chr);
 			}
 
 			strcat(outLine, tmp);
@@ -413,7 +439,7 @@ int doData(int adrs)
 		if (i)
 			strcat(outLine, ",");
 
-		sprintf(tmp, "%o", program[adrs]);
+		sprintf(tmp, "%d", program[adrs]);
 		strcat(outLine, tmp);
 		adrs++;
 	}
@@ -430,6 +456,9 @@ int decode(int adrs)
 {
 	word	code, opcode;
 	int	i, pos, start = adrs;
+
+	if (symbols.count(adrs << 1))
+		fprintf(disFile, "\n%s:", symbols[adrs << 1].c_str());
 
 	breakLine = FALSE;
 	code = program[adrs];
@@ -607,7 +636,7 @@ void doOffset(int adrs, int offset)
 	else
 		dst = 2 * adrs + 2 * offset;
 
-	sprintf(temp, "%o", dst);
+	sprintf(temp, "%d", dst);
 	strcat(outLine, temp);
 }
 
@@ -869,7 +898,7 @@ int group0(int adrs)
 					break;
 
 				case 4:
-					sprintf(outLine, "\tmark\t%o", program[adrs] & 0x3f);
+					sprintf(outLine, "\tmark\t%d", program[adrs] & 0x3f);
 					skipOperand = TRUE;
 					break;
 
@@ -1062,7 +1091,7 @@ int group7(int adrs)
 
 		case 7:		// sob
 			offset = 2 * (adrs + 1) - 2 * (program[adrs] & 0x3f);
-			sprintf(outLine, "\tsob\tr%d,%o", reg, offset);
+			sprintf(outLine, "\tsob\tr%d,%d", reg, offset);
 			break;
 	}
 
@@ -1119,7 +1148,7 @@ int group8(int adrs)
 			else
 				sprintf(outLine, "\ttrap");
 
-			sprintf(temp, "\t%o", program[adrs] & 0xff);
+			sprintf(temp, "\t%d", program[adrs] & 0xff);
 			strcat(outLine, temp);
 			break;
 
@@ -1510,7 +1539,7 @@ int doOperand(int adrs, int modereg)
 			if (reg == 7)
 			{
 				adrs++;
-				sprintf(temp, "#%o", program[adrs]);
+				sprintf(temp, "#%d", program[adrs]);
 			}
 			else
 				sprintf(temp, "(r%d)+", reg);
@@ -1520,7 +1549,7 @@ int doOperand(int adrs, int modereg)
 			if (reg == 7)
 			{
 				adrs++;
-				sprintf(temp, "@#%o", program[adrs]);
+				sprintf(temp, "@#%d", program[adrs]);
 			}
 			else
 				sprintf(temp, "@(r%d)+", reg);
@@ -1544,10 +1573,10 @@ int doOperand(int adrs, int modereg)
 				if (dest > 0177776)
 					dest -= 0200000;
 
-				sprintf(temp, "%o", dest);
+				printsym(temp, dest);
 			}
 			else
-				sprintf(temp, "%o(r%d)", program[adrs], reg);
+				sprintf(temp, "%d(r%d)", (short)program[adrs], reg);
 			break;
 
 		case 7:			// index deferred or relative deferred (r7)
@@ -1560,10 +1589,10 @@ int doOperand(int adrs, int modereg)
 				if (dest > 0177776)
 					dest -= 0200000;
 
-				sprintf(temp, "@%o", dest);
+				printsym(temp, dest);
 			}
 			else
-				sprintf(temp, "@%o(r%d)", program[adrs], reg);
+				sprintf(temp, "@%d(r%d)", (short)program[adrs], reg);
 			break;
 	}
 
